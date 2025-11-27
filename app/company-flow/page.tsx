@@ -89,7 +89,6 @@ export default function CompanyFlowPage() {
           : "/api/companies"
       ),
     staleTime: 60_000,
-    keepPreviousData: true,
   });
 
   /* ------- company full details ------- */
@@ -116,7 +115,6 @@ export default function CompanyFlowPage() {
       ),
     enabled: !!selectedCompanyId,
     staleTime: 60_000,
-    keepPreviousData: true,
   });
 
   /* ------- global location search (entry by location) ------- */
@@ -129,7 +127,6 @@ export default function CompanyFlowPage() {
       ),
     enabled: entryMode === "location" && !!locationGlobalQuery,
     staleTime: 300_000,
-    keepPreviousData: true,
   });
 
   /* ------- employees for selected location ------- */
@@ -150,7 +147,6 @@ export default function CompanyFlowPage() {
       ),
     enabled: !!selectedLocationId,
     staleTime: 60_000,
-    keepPreviousData: true,
   });
 
   /* ------- employee detail & wages ------- */
