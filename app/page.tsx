@@ -335,17 +335,9 @@ export default function CompanyFlowPage() {
       {/* Header */}
       <header className="mx-auto flex max-w-7xl flex-col gap-4 pb-8 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-400">
-            Company → Locations → Employees → Wages
-          </p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
             Organization Data Explorer
           </h1>
-          <p className="mt-3 max-w-2xl text-sm text-slate-400">
-            Start with a company or jump directly to a location, then drill down
-            into employees and wage history. Each step is cached with TanStack
-            Query so repeat views stay fast, even if the DB is slow.
-          </p>
         </div>
         <div className="flex gap-2 text-xs font-medium text-slate-300">
           <StepPill label="1. Company / Location" active />
