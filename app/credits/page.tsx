@@ -1611,7 +1611,6 @@ function EmployeesExpandableRow({
       }),
     enabled: isExpanded && Boolean(from && to),
     staleTime: 60_000,
-    keepPreviousData: false,
   });
 
   const containerClasses = [
