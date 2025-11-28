@@ -62,5 +62,31 @@ export type EmployeeWage = {
   conid: number;
 };
 
+export type CreditsSummary = {
+  screened: number;
+  qualified: number;
+  nonQualified: number;
+  totalCerts: number;
+  totalDenials: number;
+  totalPending: number;
+};
+
+export type CreditEmployee = {
+  id: number;
+  FirstName: string | null;
+  LastName: string | null;
+  SSN: string | null;
+  datehired: string; // DATE as string 'YYYY-MM-DD'
+  LocationID: number;
+  LocationName: string | null;
+  City: string | null;
+  State: string | null;
+  CertifiedDate: string; // '1900-01-01' when not set
+  DeniedDate: string;
+  PendingDate: string;
+  sent: number;
+  DPC: number;
+};
+
 export type CompanyRecord = Record<string, any>;
 export type EmployeeRecord = Record<string, any>;
