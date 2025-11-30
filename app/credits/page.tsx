@@ -1106,15 +1106,15 @@ export default function CreditsPage() {
     ],
     queryFn: () =>
       fetchJSON<PaginatedResult<LocationSummary>>(
-        `/api/companies/${selectedCompany!.CustomerID}/locations?page=${locationPage}&pageSize=${locationPageSize}`
+        `/api/companies/${
+          selectedCompany!.CustomerID
+        }/locations?page=${locationPage}&pageSize=${locationPageSize}`
       ),
     enabled: !!selectedCompany,
     staleTime: 5 * 60_000,
   });
 
-  const globalLocationsQuery = useQuery<
-    PaginatedResult<LocationSearchResult>
-  >({
+  const globalLocationsQuery = useQuery<PaginatedResult<LocationSearchResult>>({
     queryKey: [
       "credits-locations-global",
       locationSearchQuery,
@@ -1376,9 +1376,7 @@ export default function CreditsPage() {
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
     pageCount: companiesQuery.data
-      ? Math.ceil(
-          companiesQuery.data.total / companiesQuery.data.pageSize
-        )
+      ? Math.ceil(companiesQuery.data.total / companiesQuery.data.pageSize)
       : -1,
     state: {
       pagination: {
@@ -1674,9 +1672,7 @@ export default function CreditsPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() =>
-                          setCompanyPage((prev) => prev + 1)
-                        }
+                        onClick={() => setCompanyPage((prev) => prev + 1)}
                         disabled={
                           companiesQuery.data.page *
                             companiesQuery.data.pageSize >=
@@ -1736,16 +1732,17 @@ export default function CreditsPage() {
                             </td>
                           </tr>
                         )}
-                        {locationsQuery.isError && !locationsQuery.isLoading && (
-                          <tr>
-                            <td
-                              colSpan={4}
-                              className="px-3 py-4 text-center text-xs text-rose-400"
-                            >
-                              {(locationsQuery.error as Error).message}
-                            </td>
-                          </tr>
-                        )}
+                        {locationsQuery.isError &&
+                          !locationsQuery.isLoading && (
+                            <tr>
+                              <td
+                                colSpan={4}
+                                className="px-3 py-4 text-center text-xs text-rose-400"
+                              >
+                                {(locationsQuery.error as Error).message}
+                              </td>
+                            </tr>
+                          )}
                         {locationsQuery.data &&
                           locationsQuery.data.items.length === 0 &&
                           !locationsQuery.isLoading && (
@@ -1822,9 +1819,7 @@ export default function CreditsPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() =>
-                          setLocationPage((prev) => prev + 1)
-                        }
+                        onClick={() => setLocationPage((prev) => prev + 1)}
                         disabled={
                           locationsQuery.data.page *
                             locationsQuery.data.pageSize >=
@@ -1874,16 +1869,17 @@ export default function CreditsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {globalLocationsQuery.isLoading && locationSearchQuery && (
-                        <tr>
-                          <td
-                            colSpan={4}
-                            className="px-3 py-3 text-center text-[11px] text-slate-500"
-                          >
-                            Searching locations...
-                          </td>
-                        </tr>
-                      )}
+                      {globalLocationsQuery.isLoading &&
+                        locationSearchQuery && (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-3 py-3 text-center text-[11px] text-slate-500"
+                            >
+                              Searching locations...
+                            </td>
+                          </tr>
+                        )}
                       {globalLocationsQuery.isError &&
                         !globalLocationsQuery.isLoading && (
                           <tr>
@@ -2027,9 +2023,7 @@ export default function CreditsPage() {
                               <button
                                 type="button"
                                 onClick={() =>
-                                  setExpandedMetric(
-                                    isExpanded ? null : row.key
-                                  )
+                                  setExpandedMetric(isExpanded ? null : row.key)
                                 }
                                 className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
                               >
