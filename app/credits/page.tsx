@@ -946,19 +946,25 @@
 
 import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import {
+  ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
 import type {
   CompanySummary,
   LocationSummary,
   CreditsSummary,
   CreditEmployee,
+  LocationSearchResult,
+  PaginatedResult,
 } from "@/app/lib/types";
 import { nanoid } from "nanoid";
+import { AVERAGE_CREDIT, REVENUE_RATE } from "@/app/lib/credits";
 
 /* ---------------- helpers ---------------- */
-
-const AVERAGE_CREDIT = 1469.21;
-const REVENUE_RATE = 0.2;
 
 async function fetchJSON<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store" });
@@ -1048,34 +1054,80 @@ export default function CreditsPage() {
   const [selectedCompany, setSelectedCompany] = useState<CompanySummary | null>(
     null
   );
+  const [companyPage, setCompanyPage] = useState(1);
+  const [companyPageSize, setCompanyPageSize] = useState(10);
 
   // location selection
   const [selectedLocation, setSelectedLocation] =
     useState<LocationSummary | null>(null);
+
+  // locations for selected company (pagination)
+  const [locationPage, setLocationPage] = useState(1);
+  const locationPageSize = 10;
+
+  // global location search (across all companies)
+  const [locationSearchInput, setLocationSearchInput] = useState("");
+  const [locationSearchQuery, setLocationSearchQuery] = useState("");
+  const [locationSearchPage, setLocationSearchPage] = useState(1);
+  const locationSearchPageSize = 10;
 
   // which metric row is expanded for "see more"
   const [expandedMetric, setExpandedMetric] = useState<string | null>(null);
 
   /* ----- queries ----- */
 
-  const companiesQuery = useQuery<CompanySummary[]>({
-    queryKey: ["credits-companies", companySearchQuery],
-    queryFn: () =>
-      fetchJSON<CompanySummary[]>(
-        companySearchQuery
-          ? `/api/companies?q=${encodeURIComponent(companySearchQuery)}`
-          : "/api/companies"
-      ),
+  const companiesQuery = useQuery<PaginatedResult<CompanySummary>>({
+    queryKey: [
+      "credits-companies",
+      companySearchQuery,
+      companyPage,
+      companyPageSize,
+    ],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      params.set("page", String(companyPage));
+      params.set("pageSize", String(companyPageSize));
+      if (companySearchQuery) {
+        params.set("q", companySearchQuery);
+      }
+      return fetchJSON<PaginatedResult<CompanySummary>>(
+        `/api/companies?${params.toString()}`
+      );
+    },
     staleTime: 5 * 60_000,
   });
 
-  const locationsQuery = useQuery<LocationSummary[]>({
-    queryKey: ["credits-locations", selectedCompany?.CustomerID],
+  const locationsQuery = useQuery<PaginatedResult<LocationSummary>>({
+    queryKey: [
+      "credits-locations",
+      selectedCompany?.CustomerID,
+      locationPage,
+      locationPageSize,
+    ],
     queryFn: () =>
-      fetchJSON<LocationSummary[]>(
-        `/api/companies/${selectedCompany!.CustomerID}/locations`
+      fetchJSON<PaginatedResult<LocationSummary>>(
+        `/api/companies/${selectedCompany!.CustomerID}/locations?page=${locationPage}&pageSize=${locationPageSize}`
       ),
     enabled: !!selectedCompany,
+    staleTime: 5 * 60_000,
+  });
+
+  const globalLocationsQuery = useQuery<
+    PaginatedResult<LocationSearchResult>
+  >({
+    queryKey: [
+      "credits-locations-global",
+      locationSearchQuery,
+      locationSearchPage,
+      locationSearchPageSize,
+    ],
+    queryFn: () =>
+      fetchJSON<PaginatedResult<LocationSearchResult>>(
+        `/api/locations?page=${locationSearchPage}&pageSize=${locationSearchPageSize}&q=${encodeURIComponent(
+          locationSearchQuery
+        )}`
+      ),
+    enabled: Boolean(locationSearchQuery),
     staleTime: 5 * 60_000,
   });
 
@@ -1139,18 +1191,47 @@ export default function CreditsPage() {
   /* ----- handlers ----- */
 
   const handleCompanySearch = () => {
+    setCompanyPage(1);
     setCompanySearchQuery(companySearchInput.trim());
   };
 
   const handleSelectCompany = (c: CompanySummary) => {
     setSelectedCompany(c);
     setSelectedLocation(null);
+    setLocationPage(1);
   };
 
   const handleSelectLocation = (locId: number) => {
-    const list = locationsQuery.data ?? [];
+    const list = locationsQuery.data?.items ?? [];
     const found = list.find((l) => l.id === locId) ?? null;
     setSelectedLocation(found);
+  };
+
+  const handleGlobalLocationSearch = () => {
+    setLocationSearchPage(1);
+    setLocationSearchQuery(locationSearchInput.trim());
+  };
+
+  const handleSelectLocationGlobal = (r: LocationSearchResult) => {
+    setSelectedCompany({
+      CustomerID: r.CustomerID,
+      Name: r.CompanyName,
+      LocationCount: 0,
+      EmployeeCount: r.EmployeeCount,
+    });
+    setSelectedLocation({
+      id: r.id,
+      Name: r.Name,
+      City: r.City,
+      State: r.State,
+      Zip: r.Zip,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      EmployeeCount: r.EmployeeCount,
+      TotalWages: 0,
+      TotalHours: 0,
+    });
+    setLocationPage(1);
   };
 
   /* ---------------- metric rows data ---------------- */
@@ -1228,6 +1309,135 @@ export default function CreditsPage() {
 
   /* ---------------- UI ---------------- */
 
+  const companiesData = companiesQuery.data?.items ?? [];
+
+  const companyColumns: ColumnDef<CompanySummary>[] = useMemo(
+    () => [
+      {
+        accessorKey: "Name",
+        header: "Company",
+        cell: ({ row }) => {
+          const c = row.original;
+          return (
+            <div className="flex flex-col gap-0.5">
+              <span className="font-medium text-slate-50">{c.Name}</span>
+              <span className="text-[11px] text-slate-400">
+                ID: {c.CustomerID}
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "LocationCount",
+        header: () => <span className="block text-right">Locations</span>,
+        cell: ({ row }) => (
+          <span className="block text-right text-slate-300">
+            {row.original.LocationCount}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "EmployeeCount",
+        header: () => <span className="block text-right">Employees</span>,
+        cell: ({ row }) => (
+          <span className="block text-right text-slate-200">
+            {row.original.EmployeeCount}
+          </span>
+        ),
+      },
+      {
+        id: "download",
+        header: () => <span className="block text-right">Download</span>,
+        cell: ({ row }) => {
+          const params = new URLSearchParams();
+          if (from) params.set("from", from);
+          if (to) params.set("to", to);
+          params.set("customerId", String(row.original.CustomerID));
+          const href = `/api/credits/companies/export?${params.toString()}`;
+          return (
+            <a
+              href={href}
+              onClick={(e) => e.stopPropagation()}
+              className="block text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-300 hover:text-sky-200"
+            >
+              Download Excel
+            </a>
+          );
+        },
+      },
+    ],
+    [from, to]
+  );
+
+  const companyTable = useReactTable({
+    data: companiesData,
+    columns: companyColumns,
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    pageCount: companiesQuery.data
+      ? Math.ceil(
+          companiesQuery.data.total / companiesQuery.data.pageSize
+        )
+      : -1,
+    state: {
+      pagination: {
+        pageIndex: companyPage - 1,
+        pageSize: companyPageSize,
+      },
+    },
+    onPaginationChange: (updater) => {
+      const next =
+        typeof updater === "function"
+          ? updater({
+              pageIndex: companyPage - 1,
+              pageSize: companyPageSize,
+            })
+          : updater;
+      setCompanyPage(next.pageIndex + 1);
+      setCompanyPageSize(next.pageSize);
+    },
+  });
+
+  const creditsExportHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    if (selectedCompany) {
+      params.set("customerId", String(selectedCompany.CustomerID));
+    }
+    if (selectedLocation) {
+      params.set("locationId", String(selectedLocation.id));
+    }
+    return `/api/credits/export?${params.toString()}`;
+  }, [from, to, selectedCompany, selectedLocation]);
+
+  const companiesExportHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    if (companySearchQuery) params.set("q", companySearchQuery);
+    if (selectedLocation) {
+      params.set("locationId", String(selectedLocation.id));
+    } else if (selectedCompany) {
+      params.set("customerId", String(selectedCompany.CustomerID));
+    }
+    return `/api/credits/companies/export?${params.toString()}`;
+  }, [from, to, companySearchQuery, selectedCompany, selectedLocation]);
+
+  const locationsExportHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    if (selectedCompany) {
+      params.set("customerId", String(selectedCompany.CustomerID));
+    }
+    if (selectedLocation) {
+      params.set("locationId", String(selectedLocation.id));
+    }
+    return `/api/credits/locations/export?${params.toString()}`;
+  }, [from, to, selectedCompany, selectedLocation]);
+
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-10 text-slate-50 sm:px-8 lg:px-14">
       {/* Header */}
@@ -1255,6 +1465,12 @@ export default function CreditsPage() {
           <span className="text-[11px] text-slate-500">
             Revenue share: {(REVENUE_RATE * 100).toFixed(0)}%
           </span>
+          <a
+            href={creditsExportHref}
+            className="mt-1 inline-flex h-9 items-center justify-center rounded-full border border-sky-500 bg-sky-500/15 px-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-50 shadow-[0_0_18px_rgba(56,189,248,0.45)] transition hover:bg-sky-500/30"
+          >
+            Download Excel
+          </a>
         </div>
       </header>
 
@@ -1269,7 +1485,7 @@ export default function CreditsPage() {
             </p>
           </div>
 
-          <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(2,1.8fr)_minmax(0,1.3fr)]">
+          <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)]">
             {/* Date + company search */}
             <div className="space-y-6">
               {/* Date range */}
@@ -1304,10 +1520,18 @@ export default function CreditsPage() {
               </div>
 
               {/* Company search & list */}
-              <div className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
-                  Company
-                </p>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Companies
+                  </p>
+                  <a
+                    href={companiesExportHref}
+                    className="inline-flex h-8 items-center justify-center rounded-full border border-sky-500 bg-sky-500/10 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-100 shadow-[0_0_14px_rgba(56,189,248,0.35)] transition hover:bg-sky-500/25"
+                  >
+                    Download Excel
+                  </a>
+                </div>
                 <div className="flex gap-2">
                   <input
                     value={companySearchInput}
@@ -1327,143 +1551,432 @@ export default function CreditsPage() {
                   </button>
                 </div>
 
-                <div className="mt-2 max-h-40 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/80">
-                  <ul className="divide-y divide-slate-800 text-xs">
-                    {companiesQuery.isLoading && (
-                      <li className="px-4 py-3 text-slate-500">
-                        Loading companies...
-                      </li>
-                    )}
-                    {companiesQuery.isError && !companiesQuery.isLoading && (
-                      <li className="px-4 py-3 text-rose-400">
-                        {(companiesQuery.error as Error).message}
-                      </li>
-                    )}
-                    {companiesQuery.data &&
-                      companiesQuery.data.length === 0 &&
-                      !companiesQuery.isLoading && (
-                        <li className="px-4 py-3 text-slate-500">
-                          No companies found.
-                        </li>
+                <div className="mt-2 max-h-60 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/80">
+                  <table className="min-w-full text-left text-xs">
+                    <thead className="sticky top-0 bg-slate-900/95 text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                      {companyTable.getHeaderGroups().map((headerGroup) => (
+                        <tr key={headerGroup.id}>
+                          {headerGroup.headers.map((header) => (
+                            <th
+                              key={header.id}
+                              className={
+                                header.column.id === "LocationCount" ||
+                                header.column.id === "EmployeeCount" ||
+                                header.column.id === "download"
+                                  ? "px-4 py-2 text-right"
+                                  : "px-4 py-2"
+                              }
+                            >
+                              {header.isPlaceholder
+                                ? null
+                                : flexRender(
+                                    header.column.columnDef.header,
+                                    header.getContext()
+                                  )}
+                            </th>
+                          ))}
+                        </tr>
+                      ))}
+                    </thead>
+                    <tbody>
+                      {companiesQuery.isLoading && (
+                        <tr>
+                          <td
+                            colSpan={4}
+                            className="px-4 py-4 text-center text-xs text-slate-500"
+                          >
+                            Loading companies...
+                          </td>
+                        </tr>
                       )}
-                    {companiesQuery.data?.map((c) => {
-                      const active =
-                        selectedCompany?.CustomerID === c.CustomerID;
-                      return (
-                        <li
-                          key={c.CustomerID}
-                          onClick={() => handleSelectCompany(c)}
-                          className={[
-                            "cursor-pointer px-4 py-3 transition",
-                            active
-                              ? "bg-sky-500/15 text-sky-50"
-                              : "hover:bg-slate-900",
-                          ].join(" ")}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex flex-col">
-                              <span className="font-medium text-slate-50">
-                                {c.Name}
-                              </span>
-                              <span className="text-[11px] text-slate-400">
-                                ID: {c.CustomerID}
-                              </span>
-                            </div>
-                            <div className="flex flex-col items-end text-[10px] text-slate-400">
-                              <span>Locs: {c.LocationCount}</span>
-                              <span>Emps: {c.EmployeeCount}</span>
-                            </div>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                      {companiesQuery.isError && !companiesQuery.isLoading && (
+                        <tr>
+                          <td
+                            colSpan={4}
+                            className="px-4 py-4 text-center text-xs text-rose-400"
+                          >
+                            {(companiesQuery.error as Error).message}
+                          </td>
+                        </tr>
+                      )}
+                      {!companiesQuery.isLoading &&
+                        !companiesQuery.isError &&
+                        companiesData.length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-4 py-4 text-center text-xs text-slate-500"
+                            >
+                              No companies found.
+                            </td>
+                          </tr>
+                        )}
+                      {companyTable.getRowModel().rows.map((row) => {
+                        const c = row.original;
+                        const active =
+                          selectedCompany?.CustomerID === c.CustomerID;
+                        return (
+                          <tr
+                            key={row.id}
+                            onClick={() => handleSelectCompany(c)}
+                            className={[
+                              "cursor-pointer border-t border-slate-800 text-[13px] transition",
+                              active
+                                ? "bg-sky-500/10 hover:bg-sky-500/15"
+                                : "hover:bg-slate-900",
+                            ].join(" ")}
+                          >
+                            {row.getVisibleCells().map((cell) => (
+                              <td
+                                key={cell.id}
+                                className={
+                                  cell.column.id === "LocationCount" ||
+                                  cell.column.id === "EmployeeCount" ||
+                                  cell.column.id === "download"
+                                    ? "px-4 py-3 text-right"
+                                    : "px-4 py-3"
+                                }
+                              >
+                                {flexRender(
+                                  cell.column.columnDef.cell,
+                                  cell.getContext()
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
+                {companiesQuery.data && (
+                  <div className="mt-3 flex items-center justify-between text-[11px] text-slate-400">
+                    <span>
+                      Page {companiesQuery.data.page} of{" "}
+                      {Math.max(
+                        1,
+                        Math.ceil(
+                          companiesQuery.data.total /
+                            companiesQuery.data.pageSize
+                        )
+                      )}
+                    </span>
+                    <div className="inline-flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCompanyPage((prev) => Math.max(prev - 1, 1))
+                        }
+                        disabled={companyPage <= 1}
+                        className="rounded-full border border-slate-700 px-3 py-1 text-[11px] uppercase tracking-[0.16em] disabled:opacity-40"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCompanyPage((prev) => prev + 1)
+                        }
+                        disabled={
+                          companiesQuery.data.page *
+                            companiesQuery.data.pageSize >=
+                          companiesQuery.data.total
+                        }
+                        className="rounded-full border border-slate-700 px-3 py-1 text-[11px] uppercase tracking-[0.16em] disabled:opacity-40"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Location + context */}
+            {/* Locations + global location search */}
             <div className="space-y-6 rounded-2xl border border-slate-800 bg-slate-950/80 p-4 md:p-5">
-              <div className="flex flex-col gap-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
-                  Location (optional)
-                </p>
+              {/* Locations for selected company */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Locations for company
+                  </p>
+                  <a
+                    href={locationsExportHref}
+                    className="inline-flex h-8 items-center justify-center rounded-full border border-emerald-500 bg-emerald-500/10 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100 shadow-[0_0_14px_rgba(52,211,153,0.35)] transition hover:bg-emerald-500/25"
+                  >
+                    Download Excel
+                  </a>
+                </div>
                 {!selectedCompany && (
                   <p className="text-xs text-slate-500">
                     Select a company on the left to see its locations. Leaving
-                    this empty shows all locations for that company.
+                    location unselected will include all locations for that
+                    company.
                   </p>
                 )}
-
                 {selectedCompany && (
-                  <>
-                    <p className="text-xs text-slate-300">
-                      {selectedCompany.Name}
-                    </p>
-                    <select
-                      className="mt-2 h-10 w-full rounded-xl border border-slate-700 bg-slate-900 px-3 text-xs outline-none transition focus:border-emerald-400 focus:shadow-[0_0_0_1px_rgba(52,211,153,0.8)]"
-                      value={selectedLocation?.id ?? ""}
-                      onChange={(e) => {
-                        const id = Number(e.target.value);
-                        if (!id) {
-                          setSelectedLocation(null);
-                        } else {
-                          handleSelectLocation(id);
+                  <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950">
+                    <table className="min-w-full text-left text-xs">
+                      <thead className="sticky top-0 bg-slate-900/95 text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                        <tr>
+                          <th className="px-3 py-2">Location</th>
+                          <th className="px-3 py-2">City</th>
+                          <th className="px-3 py-2">State</th>
+                          <th className="px-3 py-2 text-right">Employees</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {locationsQuery.isLoading && (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-3 py-4 text-center text-xs text-slate-500"
+                            >
+                              Loading locations...
+                            </td>
+                          </tr>
+                        )}
+                        {locationsQuery.isError && !locationsQuery.isLoading && (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-3 py-4 text-center text-xs text-rose-400"
+                            >
+                              {(locationsQuery.error as Error).message}
+                            </td>
+                          </tr>
+                        )}
+                        {locationsQuery.data &&
+                          locationsQuery.data.items.length === 0 &&
+                          !locationsQuery.isLoading && (
+                            <tr>
+                              <td
+                                colSpan={4}
+                                className="px-3 py-4 text-center text-xs text-slate-500"
+                              >
+                                No locations found for this company.
+                              </td>
+                            </tr>
+                          )}
+                        {locationsQuery.data?.items.map((loc) => {
+                          const active = selectedLocation?.id === loc.id;
+                          return (
+                            <tr
+                              key={loc.id}
+                              onClick={() => handleSelectLocation(loc.id)}
+                              className={[
+                                "cursor-pointer border-t border-slate-800 text-[13px] transition",
+                                active
+                                  ? "bg-emerald-500/10 hover:bg-emerald-500/15"
+                                  : "hover:bg-slate-900",
+                              ].join(" ")}
+                            >
+                              <td className="px-3 py-2">
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="font-medium text-slate-50">
+                                    {loc.Name}
+                                  </span>
+                                  <span className="text-[11px] text-slate-400">
+                                    ID: {loc.id}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-slate-300">
+                                {loc.City}
+                              </td>
+                              <td className="px-3 py-2 text-slate-300">
+                                {loc.State}
+                              </td>
+                              <td className="px-3 py-2 text-right text-slate-50">
+                                {loc.EmployeeCount}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {locationsQuery.data && selectedCompany && (
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+                    <span>
+                      Page {locationsQuery.data.page} of{" "}
+                      {Math.max(
+                        1,
+                        Math.ceil(
+                          locationsQuery.data.total /
+                            locationsQuery.data.pageSize
+                        )
+                      )}
+                    </span>
+                    <div className="inline-flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLocationPage((prev) => Math.max(prev - 1, 1))
                         }
-                      }}
-                    >
-                      <option value="">All locations</option>
-                      {locationsQuery.data?.map((loc) => (
-                        <option key={loc.id} value={loc.id}>
-                          {loc.Name} — {loc.City ?? ""} {loc.State ?? ""}
-                        </option>
-                      ))}
-                    </select>
-
-                    {locationsQuery.isLoading && (
-                      <p className="mt-2 text-[11px] text-slate-500">
-                        Loading locations...
-                      </p>
-                    )}
-                    {locationsQuery.isError && !locationsQuery.isLoading && (
-                      <p className="mt-2 text-[11px] text-rose-400">
-                        {(locationsQuery.error as Error).message}
-                      </p>
-                    )}
-                  </>
+                        disabled={locationPage <= 1}
+                        className="rounded-full border border-slate-700 px-3 py-1 text-[11px] uppercase tracking-[0.16em] disabled:opacity-40"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLocationPage((prev) => prev + 1)
+                        }
+                        disabled={
+                          locationsQuery.data.page *
+                            locationsQuery.data.pageSize >=
+                          locationsQuery.data.total
+                        }
+                        className="rounded-full border border-slate-700 px-3 py-1 text-[11px] uppercase tracking-[0.16em] disabled:opacity-40"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
 
+              {/* Global location search */}
               <div className="border-t border-slate-800 pt-4 text-[11px] text-slate-400">
                 <p className="font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Current context
+                  Search by location (all companies)
                 </p>
-                <ul className="mt-3 space-y-1.5">
-                  <li>
-                    <span className="text-slate-500">Date range: </span>
-                    <span className="text-slate-200">
-                      {from || "—"} → {to || "—"}
-                    </span>
-                  </li>
-                  <li>
-                    <span className="text-slate-500">Company: </span>
-                    <span className="text-slate-200">
-                      {selectedCompany ? selectedCompany.Name : "All companies"}
-                    </span>
-                  </li>
-                  <li>
-                    <span className="text-slate-500">Location: </span>
-                    <span className="text-slate-200">
-                      {selectedLocation
-                        ? `${selectedLocation.Name} — ${
-                            selectedLocation.City ?? ""
-                          } ${selectedLocation.State ?? ""}`
-                        : selectedCompany
-                        ? "All locations for company"
-                        : "All locations"}
-                    </span>
-                  </li>
-                </ul>
+                <div className="mt-3 flex gap-2">
+                  <input
+                    value={locationSearchInput}
+                    onChange={(e) => setLocationSearchInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleGlobalLocationSearch();
+                    }}
+                    placeholder="Search by location name, city, or ZIP..."
+                    className="h-9 flex-1 rounded-xl border border-slate-700 bg-slate-900 px-3 text-xs outline-none transition focus:border-emerald-400 focus:shadow-[0_0_0_1px_rgba(52,211,153,0.7)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleGlobalLocationSearch}
+                    className="inline-flex h-9 items-center justify-center rounded-xl border border-emerald-500 bg-emerald-500/20 px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50 shadow-[0_0_14px_rgba(52,211,153,0.45)] transition hover:bg-emerald-500/30"
+                  >
+                    Search
+                  </button>
+                </div>
+
+                <div className="mt-3 max-h-40 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950">
+                  <table className="min-w-full text-left text-[11px]">
+                    <thead className="sticky top-0 bg-slate-900/95 text-[10px] uppercase tracking-[0.16em] text-slate-400">
+                      <tr>
+                        <th className="px-3 py-2">Location</th>
+                        <th className="px-3 py-2">City / State</th>
+                        <th className="px-3 py-2">Company</th>
+                        <th className="px-3 py-2 text-right">Employees</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {globalLocationsQuery.isLoading && locationSearchQuery && (
+                        <tr>
+                          <td
+                            colSpan={4}
+                            className="px-3 py-3 text-center text-[11px] text-slate-500"
+                          >
+                            Searching locations...
+                          </td>
+                        </tr>
+                      )}
+                      {globalLocationsQuery.isError &&
+                        !globalLocationsQuery.isLoading && (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-3 py-3 text-center text-[11px] text-rose-400"
+                            >
+                              {(globalLocationsQuery.error as Error).message}
+                            </td>
+                          </tr>
+                        )}
+                      {!globalLocationsQuery.isLoading &&
+                        globalLocationsQuery.data &&
+                        globalLocationsQuery.data.items.length === 0 &&
+                        locationSearchQuery && (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-3 py-3 text-center text-[11px] text-slate-500"
+                            >
+                              No locations found.
+                            </td>
+                          </tr>
+                        )}
+                      {globalLocationsQuery.data?.items.map((r) => {
+                        const active =
+                          selectedLocation?.id === r.id &&
+                          selectedCompany?.CustomerID === r.CustomerID;
+                        return (
+                          <tr
+                            key={r.id}
+                            onClick={() => handleSelectLocationGlobal(r)}
+                            className={[
+                              "cursor-pointer border-t border-slate-800 text-[11px] transition",
+                              active
+                                ? "bg-emerald-500/10 hover:bg-emerald-500/15"
+                                : "hover:bg-slate-900",
+                            ].join(" ")}
+                          >
+                            <td className="px-3 py-2 text-slate-50">
+                              {r.Name}
+                            </td>
+                            <td className="px-3 py-2 text-slate-300">
+                              {r.City}, {r.State}
+                            </td>
+                            <td className="px-3 py-2 text-slate-300">
+                              {r.CompanyName}
+                            </td>
+                            <td className="px-3 py-2 text-right text-slate-200">
+                              {r.EmployeeCount}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-3 flex flex-col gap-2 text-[11px] text-slate-400">
+                  <div>
+                    <p className="font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Current context
+                    </p>
+                    <ul className="mt-2 space-y-1.5">
+                      <li>
+                        <span className="text-slate-500">Date range: </span>
+                        <span className="text-slate-200">
+                          {from || "—"} → {to || "—"}
+                        </span>
+                      </li>
+                      <li>
+                        <span className="text-slate-500">Company: </span>
+                        <span className="text-slate-200">
+                          {selectedCompany
+                            ? selectedCompany.Name
+                            : "All companies"}
+                        </span>
+                      </li>
+                      <li>
+                        <span className="text-slate-500">Location: </span>
+                        <span className="text-slate-200">
+                          {selectedLocation
+                            ? `${selectedLocation.Name} — ${
+                                selectedLocation.City ?? ""
+                              } ${selectedLocation.State ?? ""}`
+                            : selectedCompany
+                            ? "All locations for company"
+                            : "All locations"}
+                        </span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1510,23 +2023,56 @@ export default function CreditsPage() {
                         </td>
                         <td className="px-5 py-3 align-top">
                           {canDrill ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedMetric(isExpanded ? null : row.key)
-                              }
-                              className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
-                            >
-                              {isExpanded ? "See less" : "See more"}
-                              <span
-                                className={[
-                                  "transition-transform",
-                                  isExpanded ? "rotate-180" : "",
-                                ].join(" ")}
+                            <div className="flex flex-col gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedMetric(
+                                    isExpanded ? null : row.key
+                                  )
+                                }
+                                className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
                               >
-                                ▾
-                              </span>
-                            </button>
+                                {isExpanded ? "See less" : "See more"}
+                                <span
+                                  className={[
+                                    "transition-transform",
+                                    isExpanded ? "rotate-180" : "",
+                                  ].join(" ")}
+                                >
+                                  ▾
+                                </span>
+                              </button>
+                              {row.employeeMetric && (
+                                <a
+                                  href={(() => {
+                                    const params = new URLSearchParams();
+                                    params.set(
+                                      "metric",
+                                      row.employeeMetric as EmployeeMetric
+                                    );
+                                    if (from) params.set("from", from);
+                                    if (to) params.set("to", to);
+                                    if (selectedCompany) {
+                                      params.set(
+                                        "customerId",
+                                        String(selectedCompany.CustomerID)
+                                      );
+                                    }
+                                    if (selectedLocation) {
+                                      params.set(
+                                        "locationId",
+                                        String(selectedLocation.id)
+                                      );
+                                    }
+                                    return `/api/credits/employees/export?${params.toString()}`;
+                                  })()}
+                                  className="inline-flex h-7 items-center justify-center rounded-full border border-sky-500 bg-sky-500/10 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-100 hover:bg-sky-500/25"
+                                >
+                                  Download Excel
+                                </a>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-[11px] text-slate-500">
                               –

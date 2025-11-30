@@ -7,13 +7,28 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const q = searchParams.get("q")?.trim() ?? "";
 
-    const rawLimit = Number(searchParams.get("limit") ?? 50);
-    const limit = Number.isFinite(rawLimit)
-      ? Math.min(Math.max(rawLimit, 1), 100)
-      : 50;
+    const pageParam = searchParams.get("page");
+    const pageSizeParam = searchParams.get("pageSize");
+
+    const rawPage = Number(pageParam ?? "1");
+    const rawPageSize = Number(
+      pageSizeParam ?? searchParams.get("limit") ?? "50"
+    );
+
+    const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1;
+    const pageSize =
+      Number.isFinite(rawPageSize) && rawPageSize > 0 && rawPageSize <= 200
+        ? rawPageSize
+        : 50;
+    const offset = (page - 1) * pageSize;
 
     if (!q) {
-      return NextResponse.json([]);
+      return NextResponse.json({
+        items: [],
+        total: 0,
+        page,
+        pageSize,
+      });
     }
 
     const sql = `
@@ -42,14 +57,35 @@ export async function GET(req: NextRequest) {
         )
       GROUP BY l.id, c.CustomerID
       ORDER BY l.Name
-      LIMIT ${limit}
+      LIMIT ${pageSize} OFFSET ${offset}
     `;
 
-    const params = [`%${q}%`, `%${q}%`, `%${q}%`];
+    const params: unknown[] = [`%${q}%`, `%${q}%`, `%${q}%`];
 
     const rows = await query<LocationSearchResult>(sql, params);
 
-    return NextResponse.json(rows);
+    const countSql = `
+      SELECT COUNT(*) AS total
+      FROM locations l
+      JOIN customers c
+        ON c.CustomerID = l.customerid
+      WHERE l.inactive = 0
+        AND (
+          l.Name LIKE ?
+          OR l.City LIKE ?
+          OR l.Zip LIKE ?
+        )
+    `;
+
+    const countRows = await query<{ total: number }>(countSql, params);
+    const total = countRows[0]?.total ?? 0;
+
+    return NextResponse.json({
+      items: rows,
+      total,
+      page,
+      pageSize,
+    });
   } catch (err) {
     console.error("GET /api/locations error", err);
     return NextResponse.json(

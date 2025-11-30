@@ -17,7 +17,11 @@ export async function GET(req: NextRequest, { params }: { params: Params }) {
     const { searchParams } = new URL(req.url);
     const q = searchParams.get("q")?.trim() ?? "";
 
-    let sql = `
+    const pageParam = searchParams.get("page");
+    const pageSizeParam = searchParams.get("pageSize");
+    const isPaginated = pageParam !== null || pageSizeParam !== null;
+
+    let sqlBase = `
       SELECT
         l.id,
         l.Name,
@@ -39,10 +43,10 @@ export async function GET(req: NextRequest, { params }: { params: Params }) {
         AND l.inactive = 0
     `;
 
-    const paramsSql: any[] = [customerId];
+    const paramsSql: unknown[] = [customerId];
 
     if (q) {
-      sql += `
+      sqlBase += `
         AND (
           l.Name  LIKE ?
           OR l.City LIKE ?
@@ -53,14 +57,66 @@ export async function GET(req: NextRequest, { params }: { params: Params }) {
       paramsSql.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
     }
 
-    sql += `
+    if (!isPaginated) {
+      const sql = `
+        ${sqlBase}
+        GROUP BY l.id
+        ORDER BY l.Name
+      `;
+
+      const rows = await query<LocationSummary>(sql, paramsSql);
+      return NextResponse.json(rows);
+    }
+
+    const rawPage = Number(pageParam ?? "1");
+    const rawPageSize = Number(pageSizeParam ?? "50");
+
+    const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1;
+    const pageSize =
+      Number.isFinite(rawPageSize) && rawPageSize > 0 && rawPageSize <= 200
+        ? rawPageSize
+        : 50;
+    const offset = (page - 1) * pageSize;
+
+    const sql = `
+      ${sqlBase}
       GROUP BY l.id
       ORDER BY l.Name
+      LIMIT ${pageSize} OFFSET ${offset}
     `;
 
     const rows = await query<LocationSummary>(sql, paramsSql);
 
-    return NextResponse.json(rows);
+    // separate count query (no joins needed)
+    let countSql = `
+      SELECT COUNT(*) AS total
+      FROM locations l
+      WHERE l.customerid = ?
+        AND l.inactive = 0
+    `;
+    const countParams: unknown[] = [customerId];
+
+    if (q) {
+      countSql += `
+        AND (
+          l.Name  LIKE ?
+          OR l.City LIKE ?
+          OR l.State LIKE ?
+          OR l.Zip  LIKE ?
+        )
+      `;
+      countParams.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+    }
+
+    const countRows = await query<{ total: number }>(countSql, countParams);
+    const total = countRows[0]?.total ?? 0;
+
+    return NextResponse.json({
+      items: rows,
+      total,
+      page,
+      pageSize,
+    });
   } catch (err) {
     console.error("GET /api/companies/[customerId]/locations error", err);
     return NextResponse.json(

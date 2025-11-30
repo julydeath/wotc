@@ -90,3 +90,10 @@ export type CreditEmployee = {
 
 export type CompanyRecord = Record<string, any>;
 export type EmployeeRecord = Record<string, any>;
+
+export type PaginatedResult<T> = {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+};

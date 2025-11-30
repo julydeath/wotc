@@ -7,12 +7,12 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const q = searchParams.get("q")?.trim() ?? "";
 
-    const rawLimit = Number(searchParams.get("limit") ?? 50);
-    const limit = Number.isFinite(rawLimit)
-      ? Math.min(Math.max(rawLimit, 1), 100)
-      : 50;
+    const pageParam = searchParams.get("page");
+    const pageSizeParam = searchParams.get("pageSize");
 
-    let sql = `
+    const isPaginated = pageParam !== null || pageSizeParam !== null;
+
+    let sqlBase = `
       SELECT
         c.CustomerID,
         c.Name,
@@ -28,22 +28,71 @@ export async function GET(req: NextRequest) {
       WHERE c.Inactive = 0
     `;
 
-    const params: any[] = [];
+    const params: unknown[] = [];
 
     if (q) {
-      sql += ` AND c.Name LIKE ?`;
+      sqlBase += ` AND c.Name LIKE ?`;
       params.push(`%${q}%`);
     }
 
-    sql += `
+    if (!isPaginated) {
+      const rawLimit = Number(searchParams.get("limit") ?? 50);
+      const limit = Number.isFinite(rawLimit)
+        ? Math.min(Math.max(rawLimit, 1), 100)
+        : 50;
+
+      const sql = `
+        ${sqlBase}
+        GROUP BY c.CustomerID, c.Name
+        ORDER BY c.Name
+        LIMIT ${limit}
+      `;
+
+      const rows = await query<CompanySummary>(sql, params);
+      return NextResponse.json(rows);
+    }
+
+    const rawPage = Number(pageParam ?? "1");
+    const rawPageSize = Number(pageSizeParam ?? "50");
+
+    const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1;
+    const pageSize =
+      Number.isFinite(rawPageSize) && rawPageSize > 0 && rawPageSize <= 200
+        ? rawPageSize
+        : 50;
+
+    const offset = (page - 1) * pageSize;
+
+    const sql = `
+      ${sqlBase}
       GROUP BY c.CustomerID, c.Name
       ORDER BY c.Name
-      LIMIT ${limit}
+      LIMIT ${pageSize} OFFSET ${offset}
     `;
 
     const rows = await query<CompanySummary>(sql, params);
 
-    return NextResponse.json(rows);
+    // total count of companies matching filter (no need for joins)
+    let countSql = `
+      SELECT COUNT(*) AS total
+      FROM customers c
+      WHERE c.Inactive = 0
+    `;
+    const countParams: unknown[] = [];
+    if (q) {
+      countSql += ` AND c.Name LIKE ?`;
+      countParams.push(`%${q}%`);
+    }
+
+    const countRows = await query<{ total: number }>(countSql, countParams);
+    const total = countRows[0]?.total ?? 0;
+
+    return NextResponse.json({
+      items: rows,
+      total,
+      page,
+      pageSize,
+    });
   } catch (err) {
     console.error("GET /api/companies error", err);
     return NextResponse.json(
