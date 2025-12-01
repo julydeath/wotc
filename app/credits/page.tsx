@@ -963,6 +963,7 @@ import type {
 } from "@/app/lib/types";
 import { nanoid } from "nanoid";
 import { AVERAGE_CREDIT, REVENUE_RATE } from "@/app/lib/credits";
+import Link from "next/link";
 
 /* ---------------- helpers ---------------- */
 
@@ -1441,16 +1442,9 @@ export default function CreditsPage() {
       {/* Header */}
       <header className="mx-auto flex max-w-6xl flex-col gap-4 pb-8 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.26em] text-sky-400">
-            WOTC Credits Monitoring
-          </p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
             Credits Dashboard
           </h1>
-          <p className="mt-3 max-w-2xl text-sm text-slate-400">
-            Filter by time period, company, and location. Inspect each metric,
-            and drill into the exact employees behind it.
-          </p>
         </div>
 
         <div className="flex flex-col items-start gap-2 text-xs md:items-end">
@@ -1463,12 +1457,19 @@ export default function CreditsPage() {
           <span className="text-[11px] text-slate-500">
             Revenue share: {(REVENUE_RATE * 100).toFixed(0)}%
           </span>
-          <a
-            href={creditsExportHref}
-            className="mt-1 inline-flex h-9 items-center justify-center rounded-full border border-sky-500 bg-sky-500/15 px-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-50 shadow-[0_0_18px_rgba(56,189,248,0.45)] transition hover:bg-sky-500/30"
-          >
-            Download Excel
-          </a>
+          <div className="flex gap-4">
+            <a
+              href={creditsExportHref}
+              className="mt-1 inline-flex h-9 items-center justify-center rounded-full border border-sky-500 bg-sky-500/15 px-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-50 shadow-[0_0_18px_rgba(56,189,248,0.45)] transition hover:bg-sky-500/30"
+            >
+              Download Excel
+            </a>
+            <Link href="/company-flow">
+              <button className="mt-1 inline-flex h-9 items-center justify-center rounded-full border border-sky-500 bg-sky-500/15 px-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-50 shadow-[0_0_18px_rgba(56,189,248,0.45)] transition hover:bg-sky-500/30">
+                Employee Dashboard
+              </button>
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -1696,12 +1697,6 @@ export default function CreditsPage() {
                   <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
                     Locations for company
                   </p>
-                  <a
-                    href={locationsExportHref}
-                    className="inline-flex h-8 items-center justify-center rounded-full border border-emerald-500 bg-emerald-500/10 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100 shadow-[0_0_14px_rgba(52,211,153,0.35)] transition hover:bg-emerald-500/25"
-                  >
-                    Download Excel
-                  </a>
                 </div>
                 {!selectedCompany && (
                   <p className="text-xs text-slate-500">
@@ -2019,13 +2014,13 @@ export default function CreditsPage() {
                         </td>
                         <td className="px-5 py-3 align-top">
                           {canDrill ? (
-                            <div className="flex flex-col gap-2">
+                            <div className="flex gap-2">
                               <button
                                 type="button"
                                 onClick={() =>
                                   setExpandedMetric(isExpanded ? null : row.key)
                                 }
-                                className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
+                                className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1 text-[8px] font-semibold uppercase tracking-[0.16em] text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
                               >
                                 {isExpanded ? "See less" : "See more"}
                                 <span
@@ -2061,7 +2056,7 @@ export default function CreditsPage() {
                                     }
                                     return `/api/credits/employees/export?${params.toString()}`;
                                   })()}
-                                  className="inline-flex h-7 items-center justify-center rounded-full border border-sky-500 bg-sky-500/10 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-100 hover:bg-sky-500/25"
+                                  className="inline-flex h-7 items-center justify-center rounded-full border border-sky-500 bg-sky-500/10 px-3 text-[8px] font-semibold uppercase tracking-[0.16em] text-sky-100 hover:bg-sky-500/25"
                                 >
                                   Download Excel
                                 </a>
