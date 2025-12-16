@@ -120,6 +120,7 @@ export default function EmployeeZonePage() {
       const sheet = workbook.Sheets[firstSheetName];
       const json = XLSX.utils.sheet_to_json<Row>(sheet, {
         defval: "",
+        raw: false,
       });
 
       if (!json.length) {

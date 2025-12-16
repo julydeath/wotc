@@ -120,6 +120,7 @@ export async function POST(req: NextRequest) {
 
     const rows = XLSX.utils.sheet_to_json<Row>(sheet, {
       defval: "",
+      raw: false,
     });
 
     if (rows.length === 0) {
@@ -179,4 +180,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
